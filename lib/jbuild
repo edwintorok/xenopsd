@@ -1,0 +1,62 @@
+(* -*- tuareg -*- *)
+#require "unix"
+
+let flags = function
+| [] -> ""
+| pkgs -> 
+  let cmd = "ocamlfind ocamlc -verbose" ^ (
+    List.fold_left (fun acc pkg -> acc ^ " -package " ^ pkg) "" pkgs
+  ) in
+  let ic = Unix.open_process_in
+    (cmd ^ " | grep -oEe '-ppx (\"([^\"\\]|\\.)+\"|\w+)'")
+  in
+  let rec go ic acc =
+    try go ic (acc ^ " " ^ input_line ic) with End_of_file -> close_in ic; acc
+  in
+  go ic ""
+
+let coverage_rewriter ~full =
+  let is_coverage = try Unix.getenv "COVERAGE" = "1" with Not_found -> false in
+  match is_coverage, full with
+  | true, true -> "(preprocess (pps (bisect_ppx -simple-cases)))"
+  | true, _    -> "bisect_ppx -simple-cases"
+  | _          -> ""
+
+let rewriters = ["ppx_deriving_rpc"; "ppx_sexp_conv"]
+
+let () = Printf.ksprintf Jbuild_plugin.V1.send {|
+
+(rule (copy ../VERSION VERSION))
+(rule
+ (with-stdout-to "version.ml" (echo "let version=\"${read-lines:VERSION}\""))
+)
+
+(library
+ ((name xenopsd)
+  (public_name xenopsd)
+  (flags (:standard %s))
+  (wrapped false)
+  (libraries
+   (cohttp
+    fd-send-recv
+    forkexec
+    oclock
+    rpclib
+    sexplib
+    uri
+    uuidm
+    uutf
+    xcp
+    xcp.storage
+    xcp.updates
+    xcp.xen
+    xenstore
+    xenstore_transport
+    xenstore_transport.unix
+    xenstore.unix
+    xmlm
+    ))
+  %s
+  ))
+|} (flags rewriters) (coverage_rewriter ~full:true)
+
