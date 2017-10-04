@@ -65,13 +65,6 @@ sig
       Calls to [execute] with the same tag are serialised.
   *)
   val execute : t -> unit
-
-  (** [finally item] gets called when executing the work item has finished,
-      regardless whether it raised an exception or not.
-      Exceptions raised by [finally] get logged and ignored.
-      Note that calls to [finally] are not serialised!
-  *)
-  val finally : t -> unit
 end
 
 module type S = sig
