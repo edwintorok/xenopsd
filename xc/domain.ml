@@ -32,16 +32,16 @@ type xen_arm_arch_domainconfig = (* Xenctrl.xen_arm_arch_domainconfig = *) {
 } [@@deriving rpc]
 
 type x86_arch_emulation_flags = (* Xenctrl.x86_arch_emulation_flags = *)
-| X86_EMU_LAPIC
-| X86_EMU_HPET
-| X86_EMU_PM
-| X86_EMU_RTC
-| X86_EMU_IOAPIC
-| X86_EMU_PIC
-| X86_EMU_VGA
-| X86_EMU_IOMMU
-| X86_EMU_PIT
-| X86_EMU_USE_PIRQ [@@deriving rpc]
+  | X86_EMU_LAPIC
+  | X86_EMU_HPET
+  | X86_EMU_PM
+  | X86_EMU_RTC
+  | X86_EMU_IOAPIC
+  | X86_EMU_PIC
+  | X86_EMU_VGA
+  | X86_EMU_IOMMU
+  | X86_EMU_PIT
+  | X86_EMU_USE_PIRQ [@@deriving rpc]
 
 type xen_x86_arch_domainconfig = (* Xenctrl.xen_x86_arch_domainconfig = *) {
   emulation_flags: x86_arch_emulation_flags list;
@@ -53,16 +53,16 @@ type arch_domainconfig = (* Xenctrl.arch_domainconfig = *)
 [@@deriving rpc]
 
 let emulation_flags_all = [
-    X86_EMU_LAPIC
-  ; X86_EMU_HPET
-  ; X86_EMU_PM
-  ; X86_EMU_RTC
-  ; X86_EMU_IOAPIC
-  ; X86_EMU_PIC
-  ; X86_EMU_VGA
-  ; X86_EMU_IOMMU
-  ; X86_EMU_PIT
-  ; X86_EMU_USE_PIRQ
+  X86_EMU_LAPIC
+; X86_EMU_HPET
+; X86_EMU_PM
+; X86_EMU_RTC
+; X86_EMU_IOAPIC
+; X86_EMU_PIC
+; X86_EMU_VGA
+; X86_EMU_IOMMU
+; X86_EMU_PIT
+; X86_EMU_USE_PIRQ
 ]
 
 let emulation_flags_pvh = [
@@ -101,7 +101,7 @@ type builder_spec_info =
   | BuildHVM of build_hvm_info
   | BuildPV of build_pv_info
   | BuildPVH of build_pvh_info
-  [@@deriving rpc]
+[@@deriving rpc]
 
 type build_info = {
   memory_max: int64;    (* memory max in kilobytes *)
@@ -687,9 +687,9 @@ let xenguest_args_pvh ~domid ~store_port ~store_domid ~console_port ~console_dom
     ~kernel ~cmdline ~modules =
   let module_args =
     List.map (fun (m, c) ->
-      "-module" :: m ::
-      (match c with Some x -> "-cmdline" :: x :: [] | None -> [])
-    ) modules |> List.flatten
+        "-module" :: m ::
+        (match c with Some x -> "-cmdline" :: x :: [] | None -> [])
+      ) modules |> List.flatten
   in
   [
     "-mode"; "pvh_build";
@@ -788,8 +788,8 @@ let build (task: Xenops_task.task_handle) ~xc ~xs ~store_domid ~console_domid ~t
       let store_port, console_port = build_pre ~xc ~xs ~memory ~vcpus domid in
       let store_mfn, console_mfn =
         let args = xenguest_args_hvm ~domid ~store_port ~store_domid ~console_port
-          ~console_domid ~memory ~kernel
-          @ force_arg @ extras in
+            ~console_domid ~memory ~kernel
+                   @ force_arg @ extras in
         xenguest task xenguest_path domid uuid args
       in
       correct_shadow_allocation xc domid uuid memory.Memory.shadow_mib;
@@ -803,8 +803,8 @@ let build (task: Xenops_task.task_handle) ~xc ~xs ~store_domid ~console_domid ~t
       let store_port, console_port = build_pre ~xc ~xs ~memory ~vcpus domid in
       let store_mfn, console_mfn =
         let args = xenguest_args_pv ~domid ~store_port ~store_domid ~console_port
-          ~console_domid ~memory ~kernel ~cmdline:pvinfo.cmdline ~ramdisk:pvinfo.ramdisk
-          @ force_arg @ extras in
+            ~console_domid ~memory ~kernel ~cmdline:pvinfo.cmdline ~ramdisk:pvinfo.ramdisk
+                   @ force_arg @ extras in
         xenguest task xenguest_path domid uuid args
       in
       store_mfn, store_port, console_mfn, console_port, []
@@ -818,7 +818,7 @@ let build (task: Xenops_task.task_handle) ~xc ~xs ~store_domid ~console_domid ~t
       let store_mfn, console_mfn =
         let args = xenguest_args_pvh ~domid ~store_port ~store_domid ~console_port ~console_domid ~memory
             ~kernel ~cmdline:pvhinfo.cmdline ~modules:pvhinfo.modules
-          @ force_arg @ extras in
+                   @ force_arg @ extras in
         xenguest task xenguest_path domid uuid args
       in
       correct_shadow_allocation xc domid uuid memory.Memory.shadow_mib;
@@ -1071,7 +1071,7 @@ module Suspend_restore_emu_manager : SUSPEND_RESTORE = struct
                   (* Exhaust the thread_requests before returning the error,
                    * this prevenst leaking blocked results threads *)
                   List.iter (fun (emu, wakeup) ->
-                    Event.send wakeup () |> Event.sync)
+                      Event.send wakeup () |> Event.sync)
                     !thread_requests;
                   `Error Domain_restore_failed
                 end
@@ -1578,7 +1578,7 @@ module Suspend_restore_xenguest: SUSPEND_RESTORE = struct
       domid store_mfn store_port local_stuff vm_stuff
 
   let write_libxc_record' (task: Xenops_task.task_handle) ~xc ~xs ~domain_type
-    manager_path domid uuid fd flags progress_callback qemu_domid do_suspend_callback =
+      manager_path domid uuid fd flags progress_callback qemu_domid do_suspend_callback =
 
     let fd_uuid = Uuid.(to_string (create `V4)) in
     let mode =

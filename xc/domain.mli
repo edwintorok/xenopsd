@@ -35,16 +35,16 @@ type xen_arm_arch_domainconfig = (* Xenctrl.xen_arm_arch_domainconfig = *) {
 }
 
 type x86_arch_emulation_flags = (* Xenctrl.x86_arch_emulation_flags = *)
-| X86_EMU_LAPIC
-| X86_EMU_HPET
-| X86_EMU_PM
-| X86_EMU_RTC
-| X86_EMU_IOAPIC
-| X86_EMU_PIC
-| X86_EMU_VGA
-| X86_EMU_IOMMU
-| X86_EMU_PIT
-| X86_EMU_USE_PIRQ
+  | X86_EMU_LAPIC
+  | X86_EMU_HPET
+  | X86_EMU_PM
+  | X86_EMU_RTC
+  | X86_EMU_IOAPIC
+  | X86_EMU_PIC
+  | X86_EMU_VGA
+  | X86_EMU_IOMMU
+  | X86_EMU_PIT
+  | X86_EMU_USE_PIRQ
 
 val emulation_flags_pvh : x86_arch_emulation_flags list
 val emulation_flags_all : x86_arch_emulation_flags list

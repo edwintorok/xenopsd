@@ -571,16 +571,16 @@ module VbdDeviceTests = DeviceTests(struct
     let ids = List.map (fun x -> example_uuid, x) [ "0"; "1"; "2" ]
     let create id position =
       let open Vbd in { Vbd.default_t with
-        Vbd.id = id;
-        position = position;
-        mode = ReadWrite;
-        backend = Some (Local "/dev/zero");
-        ty = Disk;
-        unpluggable = true;
-        extra_backend_keys = [ "backend", "keys" ];
-        extra_private_keys = [ "private", "keys" ];
-        qos = None;
-      }
+                        Vbd.id = id;
+                        position = position;
+                        mode = ReadWrite;
+                        backend = Some (Local "/dev/zero");
+                        ty = Disk;
+                        unpluggable = true;
+                        extra_backend_keys = [ "backend", "keys" ];
+                        extra_private_keys = [ "private", "keys" ];
+                        qos = None;
+                      }
     let add = Client.VBD.add dbg
     let remove = Client.VBD.remove dbg
     let plug = Client.VBD.plug dbg
@@ -606,17 +606,17 @@ module VifDeviceTests = DeviceTests(struct
     let ids = List.map (fun x -> example_uuid, x) [ "0"; "1"; "2" ]
     let create id position =
       let open Vif in { Vif.default_t with
-        id = id;
-        position = position;
-        mac = "c0:ff:ee:c0:ff:ee";
-        carrier = false;
-        mtu = 1450;
-        rate = Some(1L, 2L);
-        backend = Network.Local "xenbr0";
-        other_config = [ "other", "config" ];
-        locking_mode = Vif.Unlocked;
-        extra_private_keys = [ "private", "keys" ];
-      }
+                        id = id;
+                        position = position;
+                        mac = "c0:ff:ee:c0:ff:ee";
+                        carrier = false;
+                        mtu = 1450;
+                        rate = Some(1L, 2L);
+                        backend = Network.Local "xenbr0";
+                        other_config = [ "other", "config" ];
+                        locking_mode = Vif.Unlocked;
+                        extra_private_keys = [ "private", "keys" ];
+                      }
     let add = Client.VIF.add dbg
     let remove = Client.VIF.remove dbg
     let plug = Client.VIF.plug dbg
@@ -639,16 +639,16 @@ module VifDeviceTests = DeviceTests(struct
 let vbd_plug_ordering_good _ =
   let open Vbd in
   let rw position id = { Vbd.default_t with
-    Vbd.id = (id, position);
-    position = None;
-    mode = ReadWrite;
-    backend = Some (Local "/dev/zero");
-    ty = Disk;
-    unpluggable = true;
-    extra_backend_keys = [ "backend", "keys" ];
-    extra_private_keys = [ "private", "keys" ];
-    qos = None;
-  } in
+                         Vbd.id = (id, position);
+                         position = None;
+                         mode = ReadWrite;
+                         backend = Some (Local "/dev/zero");
+                         ty = Disk;
+                         unpluggable = true;
+                         extra_backend_keys = [ "backend", "keys" ];
+                         extra_private_keys = [ "private", "keys" ];
+                         qos = None;
+                       } in
   let ro position id = { (rw position id) with mode = ReadOnly } in
   (* We'll try adding the VBDs in both a good order and a bad order.
      	   The VM.start should plug them in the correct order. *)

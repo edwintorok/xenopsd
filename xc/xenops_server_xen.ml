@@ -74,7 +74,7 @@ let choose_emu_manager x = choose_alternative _emu_manager !Xc_resources.emu_man
 type qemu_frontend =
   | Name of string (* block device path or bridge name *)
   | Device of Device_common.device
-  [@@deriving rpc]
+[@@deriving rpc]
 
 type attached_vdi = {
   domid: int;
@@ -974,8 +974,8 @@ module VM = struct
                 | Some dc -> dc, persistent
                 | None ->
                   (* This is the upgraded migration/resume case - we've stored some persistent data
-                    but it was before we recorded emulation flags. Let's regenerate them now and
-                    store them persistently *)
+                     but it was before we recorded emulation flags. Let's regenerate them now and
+                     store them persistently *)
                   begin (* Sanity check *)
                     match vm.Xenops_interface.Vm.ty with
                     | PVinPVH _ -> failwith "Invalid state! No domain_config persistently stored for PVinPVH domain";
@@ -2952,32 +2952,32 @@ module Actions = struct
   let store_rtc_timeoffset vm timeoffset =
     Opt.iter
       (function { VmExtra.persistent; non_persistent } ->
-      match persistent with
-      | { VmExtra.ty = Some ( Vm.HVM hvm_info ) } ->
-        let persistent = { persistent with VmExtra.ty = Some (Vm.HVM { hvm_info with Vm.timeoffset = timeoffset }) } in
-        debug "VM = %s; rtc/timeoffset <- %s" vm timeoffset;
-        DB.write vm { VmExtra.persistent; non_persistent }
-      | _ -> ()
+       match persistent with
+       | { VmExtra.ty = Some ( Vm.HVM hvm_info ) } ->
+         let persistent = { persistent with VmExtra.ty = Some (Vm.HVM { hvm_info with Vm.timeoffset = timeoffset }) } in
+         debug "VM = %s; rtc/timeoffset <- %s" vm timeoffset;
+         DB.write vm { VmExtra.persistent; non_persistent }
+       | _ -> ()
       ) (DB.read vm)
 
   let maybe_update_pv_drivers_detected ~xc ~xs domid path =
     let vm = get_uuid ~xc domid |> Uuidm.to_string in
     Opt.iter
       (function { VmExtra.persistent; non_persistent } ->
-        if not non_persistent.VmExtra.pv_drivers_detected then begin
-          (* If the new value for this device is 4 then PV drivers are present *)
-          try
-            let value = xs.Xs.read path in
-            if value = "4" (* connected *) then begin
-              let non_persistent = { non_persistent with VmExtra.pv_drivers_detected = true } in
-              debug "VM = %s; found PV driver evidence on %s (value = %s)" vm path value;
-              DB.write vm { VmExtra.persistent; non_persistent };
-              Updates.add (Dynamic.Vm vm) internal_updates
-            end
-          with Xs_protocol.Enoent _ ->
-            warn "Watch event on %s fired but couldn't read from it" path;
-            () (* the path must have disappeared immediately after the watch fired. Let's treat this as if we never saw it. *)
-        end
+         if not non_persistent.VmExtra.pv_drivers_detected then begin
+           (* If the new value for this device is 4 then PV drivers are present *)
+           try
+             let value = xs.Xs.read path in
+             if value = "4" (* connected *) then begin
+               let non_persistent = { non_persistent with VmExtra.pv_drivers_detected = true } in
+               debug "VM = %s; found PV driver evidence on %s (value = %s)" vm path value;
+               DB.write vm { VmExtra.persistent; non_persistent };
+               Updates.add (Dynamic.Vm vm) internal_updates
+             end
+           with Xs_protocol.Enoent _ ->
+             warn "Watch event on %s fired but couldn't read from it" path;
+             () (* the path must have disappeared immediately after the watch fired. Let's treat this as if we never saw it. *)
+         end
       ) (DB.read vm)
 
   let interesting_paths_for_domain domid uuid =
