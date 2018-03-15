@@ -31,8 +31,6 @@
           let diagnostics _ = Rpc.rpc_of_unit ()
 
           let execute (op, f) = f op
-
-          let finally _ = ()
         end)
 
 
