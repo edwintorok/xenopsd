@@ -1709,6 +1709,15 @@ module Dm_Common = struct
     ; fd_map:   (string * Unix.file_descr) list (** open files *)
     }
 
+  let disk_of_index = function
+    | 0-> "ide0-cd0"
+    | 1-> "ide0-cd1"
+    | 2-> "ide1-cd0"
+    | 3 -> "ide1-cd1"
+    | devid -> raise(Internal_error (
+        Printf.sprintf "unexpected disk for disk number %d" devid
+      ))
+
   let vnc_socket_path = (sprintf "%s/vnc-%d") Device_common.var_run_xen_path
 
   let get_vnc_port ~xs domid ~f =
@@ -2149,10 +2158,7 @@ module Backend = struct
         |> Device_number.of_xenstore_key
         |> Device_number.spec
         |> function
-           | Ide, 0, _ -> "ide0-cd0"
-           | Ide, 1, _ -> "ide0-cd1"
-           | Ide, 2, _ -> "ide1-cd0"
-           | Ide, 3, _ -> "ide1-cd1"
+           | Ide, n, _ -> Dm_Common.disk_of_index n
            | _ -> raise(Internal_error (
                           Printf.sprintf "unexpected disk for devid %d" devid
                        ))
@@ -2565,15 +2571,24 @@ module Backend = struct
             | Dm_Common.Disk  -> "force-lba=on"
             | Dm_Common.Cdrom -> "force-lba=off"
           in
-          List.map (fun (index, file, media) -> [
-              "-drive"; String.concat "," ([
-                sprintf "file=%s" file;
-                "if=ide";
-                sprintf "index=%d" index;
-                sprintf "media=%s" (Dm_Common.string_of_media media);
-                lba_of_media media;
-              ] @ (format_of_media media file))
-            ])
+          List.map (fun (index, file, media) ->
+              let ide_kind, ide_name = match media with
+                | Dm_Common.Disk -> "hd", sprintf "disk%d" index
+                | Dm_Common.Cdrom -> "cd", Dm_Common.disk_of_index index in
+              [ "-drive"; String.concat "," ([
+                    sprintf "id=%s" ide_name;
+                    sprintf "if=none";
+                    sprintf "file=%s" file;
+                    sprintf "media=%s" (Dm_Common.string_of_media media);
+                    lba_of_media media;
+                  ] @ (format_of_media media file))
+              ; "-device"; String.concat ","
+                  ([sprintf "ide-%s" ide_kind
+                   ; sprintf "bus=ide.%d" (index / 2)
+                   ; sprintf "unit=%d" (index mod 2)
+                   ; sprintf "drive=%s" ide_name
+                   ])
+              ])
             info.Dm_Common.disks
           |> List.concat
         in
