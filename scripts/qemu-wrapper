@@ -155,6 +155,9 @@ def main(argv):
                       'allow-unassigned=true,trad_compat=%s%s'
                       % (mmio_start, trad_compat, igdpt)])
 
+#    qemu_args.extend(['-global', 'isa-debugcon.iobase=0x402', '-debugcon',
+#                     'file:/var/run/ovmf-%d.log' % domid)
+
     qemu_args.extend(argv[2:])
 
     # support toolstack override of NIC device model for debug purposes
