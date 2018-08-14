@@ -1709,14 +1709,16 @@ module Dm_Common = struct
     ; fd_map:   (string * Unix.file_descr) list (** open files *)
     }
 
-  let disk_of_index = function
-    | 0-> "ide0-cd0"
-    | 1-> "ide0-cd1"
-    | 2-> "ide1-cd0"
-    | 3 -> "ide1-cd1"
-    | devid -> raise(Internal_error (
-        Printf.sprintf "unexpected disk for disk number %d" devid
-      ))
+  let disk_of_index media devid =
+    if devid < 0 || devid > 3 then
+      raise(Internal_error (
+          Printf.sprintf "unexpected disk for disk number %d" devid
+        ));
+    let kind = match media with Disk -> "hd" | Cdrom -> "cd" in
+    (* device name for CDs has to match 'ide1-cd1' style,
+     * and hard drives "ide0-hd0" style otherwise it fails to get unplugged
+     * when switching to PV drivers during boot *)
+    sprintf "ide%d-%s%d" (devid/2) kind (devid mod 2)
 
   let vnc_socket_path = (sprintf "%s/vnc-%d") Device_common.var_run_xen_path
 
@@ -2158,7 +2160,7 @@ module Backend = struct
         |> Device_number.of_xenstore_key
         |> Device_number.spec
         |> function
-           | Ide, n, _ -> Dm_Common.disk_of_index n
+           | Ide, n, _ -> Dm_Common.disk_of_index Cdrom n
            | _ -> raise(Internal_error (
                           Printf.sprintf "unexpected disk for devid %d" devid
                        ))
@@ -2613,9 +2615,10 @@ module Backend = struct
             | Dm_Common.Cdrom -> "force-lba=off"
           in
           List.map (fun ((index, file, media) as device) ->
-              let ide_kind, ide_name = match media with
-                | Dm_Common.Disk -> "hd", sprintf "disk%d" index
-                | Dm_Common.Cdrom -> "cd", Dm_Common.disk_of_index index in
+              let ide_kind = match media with
+                | Dm_Common.Disk -> "hd"
+                | Dm_Common.Cdrom -> "cd" in
+              let ide_name = Dm_Common.disk_of_index media index in
               [ "-drive"; String.concat "," ([
                     sprintf "id=%s" ide_name;
                     sprintf "if=none";
