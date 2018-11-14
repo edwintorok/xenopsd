@@ -1938,6 +1938,16 @@ module Dm_Common = struct
   let resume (task: Xenops_task.task_handle) ~xs ~qemu_domid domid =
     signal task ~xs ~qemu_domid ~domid "continue" ~wait_for:"running"
 
+  let qemu_base_uid () = (Unix.getpwnam "qemu_base").Unix.pw_uid
+  let qemu_base_gid () = (Unix.getpwnam "qemu_base").Unix.pw_gid
+  let mk_chroot path domid =
+    (* FIXME: no umask *)
+    Unix.umask 0o002 |> ignore;
+    Xenops_utils.Unixext.mkdir_rec path 0o770;
+    (* TODO: mknod *)
+    Unix.chown path 0 (qemu_base_gid () + domid);
+    path, qemu_base_uid () + domid, qemu_base_gid () + domid
+
   (* Called by every domain destroy, even non-HVM *)
   let stop ~xs ~qemu_domid domid  =
     let qemu_pid_path = Qemu.pid_path domid
@@ -1965,13 +1975,10 @@ module Dm_Common = struct
     in
     let stop_vgpu () = Vgpu.stop ~xs domid in
     let stop_varstored () =
-      Varstored.stop ~xs domid;
-      List.iter (fun path ->
-          debug "deleting %s" path;
-          Unixext.unlink_safe path)
-        [ efivars_resume_path domid
-        ; efivars_save_path domid
-        ]
+      Varstored.stop ~xs domid
+     (* let path = Device_common.varstored_chroot_path domid in
+      Generic.best_effort (Printf.sprintf "removing %s" path)
+        (fun () -> Xenops_utils.FileFS.rmtree path) *)
     in
     stop_vgpu ();
     stop_varstored ();
@@ -2929,7 +2936,8 @@ module Dm = struct
 
   let start_varstored ~xs ~nvram ?(restore=false) task domid =
     let open Xenops_types in
-    debug "Preparing to start varstored for UEFI boot (domid=%d)" domid;
+    let path = Device_common.varstored_chroot_path domid in
+    debug "Preparing to start varstored for UEFI boot (domid=%d) in %s" domid path;
     let path = !Xc_resources.varstored in
     let name = "varstored" in
     let vm_uuid = Xenops_helpers.uuid_of_domid ~xs domid |> Uuidm.to_string in
@@ -2939,16 +2947,30 @@ module Dm = struct
     let (>>=) = bind in
     let argf fmt = ksprintf (fun s -> [ "--arg"; s]) fmt in
     let on cond value = if cond then value else return () in
+    let chroot, uid, gid = Dm_Common.mk_chroot (Device_common.varstored_chroot_path domid) domid in
+    let socket_path = Filename.concat chroot "xapi-depriv-socket" in
+    Unix.link "/var/run/xen/varstored-chroot-test/xapi-depriv-socket" socket_path;
+    Unix.chmod socket_path 0o660;
+    Unix.chown socket_path 0 gid;
+    let relpath path =
+      (String.sub path (String.length chroot) (String.length path - String.length chroot))
+    in
     let args =
       Add.many [ "--domain"; string_of_int domid
-               ; "--backend"; backend ] >>= fun () ->
+               ; "--chroot"; chroot
+               ; "--depriv"
+               ; "--uid"; string_of_int uid
+               ; "--gid"; string_of_int gid
+               ; "--backend"; backend
+               ; "--arg"; Printf.sprintf "socket:%s" (relpath socket_path)
+               ] >>= fun () ->
       (Varstored.pidfile_path domid |> function None -> return () | Some x ->
          Add.many [ "--pidfile"; x ]) >>= fun () ->
       Add.many @@ argf "uuid:%s" vm_uuid >>= fun () ->
       on reset_on_boot @@ Add.arg "--nonpersistent" >>= fun () ->
       on restore @@ Add.arg "--resume" >>= fun () ->
-      on restore @@ Add.many @@ argf "resume:%s" (efivars_resume_path domid) >>= fun () ->
-      Add.many @@ argf "save:%s" (efivars_save_path domid)
+      on restore @@ Add.many @@ argf "resume:%s" (relpath (efivars_resume_path domid)) >>= fun () ->
+      Add.many @@ argf "save:%s" (relpath (efivars_save_path domid))
     in
     let args = Fe_argv.run args |> snd |> Fe_argv.argv in
     let pid = start_daemon ~path ~args ~name ~domid ~fds:[] () in
@@ -3107,6 +3129,7 @@ module Dm = struct
 
   let restore_varstored (task: Xenops_task.task_handle) ~xs ~efivars domid =
     debug "Called Dm.restore_varstored (domid=%d)" domid;
+    Dm_Common.mk_chroot (varstored_chroot_path domid) domid |> ignore;
     let path = efivars_resume_path domid in
     debug "Writing EFI variables to %s (domid=%d)" path domid;
     Unixext.write_string_to_file path efivars;
