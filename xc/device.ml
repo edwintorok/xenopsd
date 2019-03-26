@@ -985,6 +985,37 @@ module type DAEMONPIDPATH = sig
   val pid_path : int -> string
 end
 
+module SystemdDaemonMgmt(D: sig
+  val name: string
+  val pid_path : int -> string
+end) = struct
+  let argspath = "/run/nonpersistent/domain/"
+
+  let fullname ~domid = Printf.sprintf "vm-%s@%d" D.name domid
+
+  let start ~domid args =
+    let name = fullname ~domid in
+    let argsfile = Filename.concat argspath name in
+    args |> String.concat "\0" |> Xenops_utils.write argsfile;
+    Forkhelpers.execute_command_get_output ("systemctl start " ^ name)
+
+  let is_running ~domid =
+    let name = fullname ~domid in
+    try
+      Forkhelpers.execute_command_get_output ("systemctl is-active " ^ name);
+      false
+    with Forkhelpers.Spawn_internal_error _ -> false
+
+  let stop ~domid =
+    let name = fullname ~domid in
+    best_effort (sprintf "killing %s" D.name)
+    (fun () -> Forkhelpers.execute_command_get_output ("systemctl stop " ^ name));
+    let key = pid_path domid in
+      best_effort (sprintf "removing XS key %s" key)
+      (fun () -> xs.Xs.rm key);
+
+end
+
 module DaemonMgmt (D : DAEMONPIDPATH) = struct
   module SignalMask = struct
     module H = Hashtbl

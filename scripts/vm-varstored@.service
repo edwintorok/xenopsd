@@ -1,0 +1,5 @@
+[Unit]
+Description=UEFI per-VM variable storage daemon
+
+[Service]
+ExecStart=/usr/bin/xargs --arg-file /run/nonpersistent/domain/%N /usr/bin/varstored
