@@ -212,19 +212,21 @@ module Generic = struct
         )
       )
 
+  let error_watch ~xs (x: device) = Watch.value_to_appear (error_path_of_device ~xs x)
+  let frontend_closed ~xs (x: device) = Watch.map (fun () -> "") (Watch.value_to_become (frontend_rw_path_of_device ~xs x ^ "/state") (Xenbus_utils.string_of Xenbus_utils.Closed))
+  let backend_closed ~xs (x: device) = Watch.value_to_become (backend_path_of_device ~xs x ^ "/state") (Xenbus_utils.string_of Xenbus_utils.Closed)
+
   let unplug_watch ~xs (x: device) =
     let path = Hotplug.path_written_by_hotplug_scripts x in
     let qdisk = Astring.String.is_infix ~affix:"backend/qdisk/" path in
     if not qdisk then begin
       Watch.key_to_disappear path
     end else begin
-      debug "unplug_watch: not waiting for qdisk %s; returning dummy watch" path;
-      Watch.{ evaluate = fun xs -> try xs.Xs.rm path with _ -> debug "dummy unplug_watch for qdisk: %s already removed" path }
+      debug "unplug_watch: not waiting for qdisk %s; waiting for frontend closed" path;
+      Watch.map (fun _ ->
+          try xs.Xs.rm path with _ -> debug "dummy unplug_watch for qdisk: %s already removed" path)
+        (frontend_closed ~xs x)
     end
-
-  let error_watch ~xs (x: device) = Watch.value_to_appear (error_path_of_device ~xs x)
-  let frontend_closed ~xs (x: device) = Watch.map (fun () -> "") (Watch.value_to_become (frontend_rw_path_of_device ~xs x ^ "/state") (Xenbus_utils.string_of Xenbus_utils.Closed))
-  let backend_closed ~xs (x: device) = Watch.value_to_become (backend_path_of_device ~xs x ^ "/state") (Xenbus_utils.string_of Xenbus_utils.Closed)
 
   let clean_shutdown_wait (task: Xenops_task.task_handle) ~xs ~ignore_transients (x: device) =
     debug "Device.Generic.clean_shutdown_wait %s" (string_of_device x);
