@@ -1071,7 +1071,7 @@ module SystemdDaemonMgmt(D: DAEMONPIDPATH) = struct
     let (_, _) = Forkhelpers.execute_command_get_output systemctl [action; name] in
     ()
 
-  let start ~domid args =
+  let start ~domid ~args =
     let name, argsfile = fullname ~domid in
     (* the systemd template reads this per-domain file and spawns
      * the long running per-domain daemon with these arguments *)
@@ -2982,8 +2982,6 @@ module Dm = struct
   let start_varstored ~xs ~nvram ?(restore=false) (task : Xenops_task.task_handle) domid =
     let open Xenops_types in
     debug "Preparing to start varstored for UEFI boot (domid=%d)" domid;
-    let path = !Xc_resources.varstored in
-    let name = "varstored" in
     let vm_uuid = Xenops_helpers.uuid_of_domid ~xs domid |> Uuidm.to_string in
     let reset_on_boot = nvram.Nvram_uefi_variables.on_boot = Nvram_uefi_variables.Reset in
     let backend = nvram.Nvram_uefi_variables.backend in
@@ -3011,11 +3009,10 @@ module Dm = struct
       Add.many @@ argf "save:%s" (Xenops_sandbox.Chroot.chroot_path_inside efivars_save_path)
     in
     let args = Fe_argv.run args |> snd |> Fe_argv.argv in
-    let pid = start_daemon ~path ~args ~name ~domid ~fds:[] () in
-    let ready_path = Varstored.pid_path domid in
-    wait_path ~pid ~task ~name ~domid ~xs ~ready_path ~timeout:!Xenopsd.varstored_ready_timeout
-      ~cancel:(Cancel_utils.Varstored domid) ();
-    Forkhelpers.dontwaitpid pid
+    (* TODO: put this into daemonmgmt *)
+    Varstored.start ~domid ~args
+    (* TODO: systemd service should wait for the path / xenstore entry by calling xenstore watch
+     * wait, we have to be careful about mapping the exceptions though *)
 
   let start_vgpu ~xs task ?(restore=false) domid vgpus vcpus profile =
     let open Xenops_interface.Vgpu in
