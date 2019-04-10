@@ -985,40 +985,6 @@ module type DAEMONPIDPATH = sig
   val pid_path : int -> string
 end
 
-module SystemdDaemonMgmt(D: sig
-  val name: string
-  val pid_path : int -> string
-end) = struct
-  let argspath = "/run/nonpersistent/domain/"
-
-  let fullname ~domid = Printf.sprintf "vm-%s@%d" D.name domid
-
-  let systemctl = "/usr/bin/systemctl"
-
-  let start ~domid args =
-    let name = fullname ~domid in
-    let argsfile = Filename.concat argspath name in
-    args |> String.concat "\x00" |> Unixext.write_string_to_file argsfile;
-    Forkhelpers.execute_command_get_output systemctl ["start"; name]
-
-  let is_running ~domid =
-    let name = fullname ~domid in
-    try
-      let (_, _) = Forkhelpers.execute_command_get_output systemctl ["is-active"; name] in
-      false
-    with Forkhelpers.Spawn_internal_error _ -> false
-
-  let stop ~xs ~domid =
-    let name = fullname ~domid in
-    best_effort (sprintf "killing %s" D.name)
-    (fun () ->
-	let (_, _) = Forkhelpers.execute_command_get_output systemctl ["stop"; name] in
-	());
-    let key = D.pid_path domid in
-      best_effort (sprintf "removing XS key %s" key)
-      (fun () -> xs.Xs.rm key);
-
-end
 
 module DaemonMgmt (D : DAEMONPIDPATH) = struct
   module SignalMask = struct
@@ -1087,6 +1053,58 @@ module DaemonMgmt (D : DAEMONPIDPATH) = struct
           (fun () -> Unix.unlink path)
 end
 
+module SystemdDaemonMgmt(D: DAEMONPIDPATH) = struct
+  module Compat = DaemonMgmt(D)
+  let argspath = "/run/nonpersistent/domain/"
+
+  let pidfile_path = Compat.pidfile_path
+  let pid_path = Compat.pid_path
+
+  let fullname ~domid =
+    let name = Printf.sprintf "vm-%s@%d" D.name domid in
+    let argsfile = Filename.concat argspath name in
+    name, argsfile
+
+  let systemctl = "/usr/bin/systemctl"
+
+  let systemctl ~name action =
+    let (_, _) = Forkhelpers.execute_command_get_output systemctl [action; name] in
+    ()
+
+  let start ~domid args =
+    let name, argsfile = fullname ~domid in
+    (* the systemd template reads this per-domain file and spawns
+     * the long running per-domain daemon with these arguments *)
+    Unixext.mkdir_safe argspath 0700;
+    args |> String.concat "\x00" |> Unixext.write_string_to_file argsfile;
+    systemctl ~name "start"
+
+  let is_running ~xs domid =
+    let name, argsfile = fullname ~domid in
+    if Sys.file_exists argsfile then
+      try
+        systemctl name "is-active";
+        true
+      with Forkhelpers.Spawn_internal_error _ -> false
+    else
+      (* backwards compatibility during update *)
+      Compat.is_running ~xs domid
+
+  let stop ~xs domid =
+    let name, argsfile = fullname ~domid in
+    if Sys.file_exists argsfile then
+      best_effort (sprintf "killing %s" D.name)
+        (fun () -> systemctl ~name "stop")
+    else
+      (* backwards compatibility during update *)
+      Compat.stop ~xs domid;
+    let key = D.pid_path domid in
+    best_effort (sprintf "removing XS key %s" key)
+      (fun () -> xs.Xs.rm key);
+    best_effort (sprintf "removing argsfile %s" argsfile)
+      (fun () -> Unix.unlink argsfile)
+end
+
 module Qemu = DaemonMgmt(struct
     let name = "qemu"
     let use_pidfile = true
@@ -1097,7 +1115,7 @@ module Vgpu = DaemonMgmt(struct
     let use_pidfile = false
     let pid_path domid = sprintf "/local/domain/%d/vgpu-pid" domid
 end)
-module Varstored = DaemonMgmt(struct
+module Varstored = SystemdDaemonMgmt(struct
     let name = "varstored"
     let use_pidfile = true
     let pid_path domid = sprintf "/local/domain/%d/varstored-pid" domid
