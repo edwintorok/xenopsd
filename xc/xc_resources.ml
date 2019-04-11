@@ -29,6 +29,7 @@ let setup_pvs_proxy_rules = ref "setup-pvs-proxy-rules"
 let vgpu = ref "vgpu"
 let gimtool = ref "/opt/xensource/bin/gimtool"
 let varstored = ref "varstored"
+let systemctl = ref "/usr/bin/systemctl"
 
 let alternatives = ref "/usr/lib/xapi/alternatives"
 
@@ -48,6 +49,7 @@ let essentials = [
   X_OK, "ionice", ionice, "path to the ionice binary";
   X_OK, "setup-vif-rules", setup_vif_rules, "path to the setup-vif-rules script";
   X_OK, "setup-pvs-proxy-rules", setup_pvs_proxy_rules, "path to the setup-pvs-proxy-rules script";
+  X_OK, "systemctl", systemctl, "path to systemctl binary"
 ] @ Resources.network_configuration
 
 let nonessentials = [

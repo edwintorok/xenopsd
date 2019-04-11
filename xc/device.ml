@@ -1055,35 +1055,52 @@ end
 
 module SystemdDaemonMgmt(D: DAEMONPIDPATH) = struct
   module Compat = DaemonMgmt(D)
-  let argspath = "/run/nonpersistent/domain/"
+
+  type t = {
+    argsfile: string;
+    fullname: string;
+    instance: string;
+    domid: int;
+  }
+
+  (* must match the path in the service file *)
+  let argspath = "/var/run/nonpersistent/xenopsd/"
+  let of_domid ~domid =
+    let instance = Printf.sprintf "%s-%d" D.name domid in
+    let fullname = "xs-vm@" ^ instance in
+    let argsfile = Filename.concat argspath (fullname ^ ".cmd.sh") in
+    { fullname; instance; domid }
 
   let pidfile_path = Compat.pidfile_path
   let pid_path = Compat.pid_path
 
-  let fullname ~domid =
-    let name = Printf.sprintf "vm-%s@%d" D.name domid in
-    let argsfile = Filename.concat argspath name in
-    name, argsfile
-
-  let systemctl = "/usr/bin/systemctl"
-
   let systemctl ~name action =
-    let (_, _) = Forkhelpers.execute_command_get_output systemctl [action; name] in
+    let (_, _) = Forkhelpers.execute_command_get_output !Xc_resources.systemctl [action; name] in
     ()
 
-  let start ~domid ~args =
-    let name, argsfile = fullname ~domid in
-    (* the systemd template reads this per-domain file and spawns
-     * the long running per-domain daemon with these arguments *)
-    Unixext.mkdir_safe argspath 0700;
-    args |> String.concat "\x00" |> Unixext.write_string_to_file argsfile;
-    systemctl ~name "start"
+  let start ~domid ~path ~args =
+    let t = of_domid ~domid in
+    (* Execute a command with a specific argv[0], e.g.
+     * we execute /usr/sbin/varstored, but want the process to be called
+     * varstored-4 when running it for domid 4.
+     * This makes debugging easier when looking at logfiles and process trees.
+     * *)
+    let cmd =
+      args |> List.map Filename.quote |> String.concat " " |>
+      "exec -a %s %s %s" t.instance (Filename.quote path) in
+    (* write the script that the systemd template instance will execute *)
+    Unixext.write_string_to_file t.argsfile cmd;
+    debug "Starting daemon: %s with args [%s]" path (String.concat "; " args);
+    systemctl ~name:t.fullname "start";
+    debug "%s: should be running in the background (stdout -> syslog); see 'systemctl status %s'" D.name
+      t.fullname;
+    debug "Daemon started: %s" t.instance
 
   let is_running ~xs domid =
-    let name, argsfile = fullname ~domid in
-    if Sys.file_exists argsfile then
+    let t = of_domid ~domid in
+    if Sys.file_exists t.argsfile then
       try
-        systemctl name "is-active";
+        systemctl t.fullname "is-active";
         true
       with Forkhelpers.Spawn_internal_error _ -> false
     else
@@ -1091,10 +1108,10 @@ module SystemdDaemonMgmt(D: DAEMONPIDPATH) = struct
       Compat.is_running ~xs domid
 
   let stop ~xs domid =
-    let name, argsfile = fullname ~domid in
-    if Sys.file_exists argsfile then
-      best_effort (sprintf "killing %s" D.name)
-        (fun () -> systemctl ~name "stop")
+    let t = of_domid ~domid in
+    if Sys.file_exists t.argsfile then
+      best_effort (sprintf "Stopping %s service" t.fullname)
+        (fun () -> systemctl ~name:t.fullname "stop")
     else
       (* backwards compatibility during update *)
       Compat.stop ~xs domid;
@@ -1102,7 +1119,7 @@ module SystemdDaemonMgmt(D: DAEMONPIDPATH) = struct
     best_effort (sprintf "removing XS key %s" key)
       (fun () -> xs.Xs.rm key);
     best_effort (sprintf "removing argsfile %s" argsfile)
-      (fun () -> Unix.unlink argsfile)
+      (fun () -> Unix.unlink t.argsfile)
 end
 
 module Qemu = DaemonMgmt(struct
@@ -3010,7 +3027,7 @@ module Dm = struct
     in
     let args = Fe_argv.run args |> snd |> Fe_argv.argv in
     (* TODO: put this into daemonmgmt *)
-    Varstored.start ~domid ~args
+    Varstored.start ~domid ~path:!Xc_resources.varstored ~args
     (* TODO: systemd service should wait for the path / xenstore entry by calling xenstore watch
      * wait, we have to be careful about mapping the exceptions though *)
 

@@ -1,0 +1,32 @@
+[Unit]
+Description=Per-VM long running daemon %I
+
+[Service]
+# redirect output to syslog, prefix with instance, e.g.
+# varstored-4 for domid 4
+SyslogIdentifier=%I
+SyslogLevel=debug
+StandardOutput=syslog
+StandardError=inherit
+
+# @allows you to explicitly specify what argv[0] should be:
+# @command argv[0] argv[1]
+ExecStart=@/bin/sh %i /var/run/nonpersistent/xenopsd/%i.cmd.sh
+
+# Wait until the daemon is ready. If TimeoutSec is hit
+# systemd will send a SIGTERM, and TimeoutSec later a SIGKILL
+Type=notify
+NotifyAccess=exec
+TimeoutSec=10
+ExecStartPost=/bin/sh /var/run/nonpersistent/xenopsd/%i.wait.sh; /usr/bin/systemd-notify --ready
+
+# restarting the device-model wouldn't work, it would've lost all the state
+# and can't reattach to the running guest
+Restart=no
+# No rate limiting
+StartLimitIntervalSec=0
+
+# We do not want system shutdown to go stopping these
+# they need to be stopped by xenopsd when the guest is stopped too!
+DefaultDependencies=no
+Slice=system.slice
