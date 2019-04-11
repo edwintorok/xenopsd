@@ -1051,7 +1051,23 @@ module DaemonMgmt (D : DAEMONPIDPATH) = struct
       | Some path ->
         best_effort (sprintf "removing %s" path)
           (fun () -> Unix.unlink path)
+
+  let start ~path ~args ~domid ?(fds=[]) () =
+    let syslog_key = (Printf.sprintf "%s-%d" name domid) in
+    let syslog_stdout = Forkhelpers.Syslog_WithKey syslog_key in
+    let redirect_stderr_to_stdout = true in
+    Forkhelpers.safe_close_and_exec None None None fds ~syslog_stdout ~redirect_stderr_to_stdout path args
+
+  let string_of_pidty = Forkhelpers.string_of_pidty
+
+  let dontwaitpid = Forkhelpers.dontwaitpid
+
+  let waitpid_nohang = Forkhelpers.waitpid_nohang
 end
+
+let systemctl ~name action =
+  let (_, _) = Forkhelpers.execute_command_get_output !Xc_resources.systemctl (action @ [name]) in
+  ()
 
 module SystemdDaemonMgmt(D: DAEMONPIDPATH) = struct
   module Compat = DaemonMgmt(D)
@@ -1074,11 +1090,8 @@ module SystemdDaemonMgmt(D: DAEMONPIDPATH) = struct
   let pidfile_path = Compat.pidfile_path
   let pid_path = Compat.pid_path
 
-  let systemctl ~name action =
-    let (_, _) = Forkhelpers.execute_command_get_output !Xc_resources.systemctl [action; name] in
-    ()
-
-  let start ~domid ~path ~args =
+  let start ~path ~args ~domid ?(fds=[]) () =
+    assert (fds = []); (* do not support FD passing here yet *)
     let t = of_domid ~domid in
     (* Execute a command with a specific argv[0], e.g.
      * we execute /usr/sbin/varstored, but want the process to be called
@@ -1090,17 +1103,18 @@ module SystemdDaemonMgmt(D: DAEMONPIDPATH) = struct
       "exec -a %s %s %s" t.instance (Filename.quote path) in
     (* write the script that the systemd template instance will execute *)
     Unixext.write_string_to_file t.argsfile cmd;
-    debug "Starting daemon: %s with args [%s]" path (String.concat "; " args);
-    systemctl ~name:t.fullname "start";
-    debug "%s: should be running in the background (stdout -> syslog); see 'systemctl status %s'" D.name
-      t.fullname;
-    debug "Daemon started: %s" t.instance
+    systemctl ~name:t.fullname ["start"];
+    t
+
+  let string_of_pidty t = t.fullname
+
+  let dontwaitpid = ignore
 
   let is_running ~xs domid =
     let t = of_domid ~domid in
     if Sys.file_exists t.argsfile then
       try
-        systemctl t.fullname "is-active";
+        systemctl t.fullname ["is-active"];
         true
       with Forkhelpers.Spawn_internal_error _ -> false
     else
@@ -1111,7 +1125,7 @@ module SystemdDaemonMgmt(D: DAEMONPIDPATH) = struct
     let t = of_domid ~domid in
     if Sys.file_exists t.argsfile then
       best_effort (sprintf "Stopping %s service" t.fullname)
-        (fun () -> systemctl ~name:t.fullname "stop")
+        (fun () -> systemctl ~name:t.fullname ["stop"])
     else
       (* backwards compatibility during update *)
       Compat.stop ~xs domid;
@@ -1120,6 +1134,21 @@ module SystemdDaemonMgmt(D: DAEMONPIDPATH) = struct
       (fun () -> xs.Xs.rm key);
     best_effort (sprintf "removing argsfile %s" argsfile)
       (fun () -> Unix.unlink t.argsfile)
+
+  let waitpid_nohang t =
+    let props = Forkhelpers.execute_command_get_output !Xc_resources.systemctl
+        [t.fullname; "show";
+         "-p";"ActiveState,SubState,StatusErrno,ExecMainStatus,ExecMainPid,Result"]
+    |> fst |> Astring.String.cuts ~sep:"\n"
+    |> List.to_seq
+    |> Seq.filter_map (List.rev_map Astring.String.cut ~sep:"=")
+    |> Seq.to_list in
+    let pid = List.assoc "ExecMainPid" props in
+    let status = props |> List.assoc "ExecMainStatus" |> int_of_string in
+    match List.assoc "ActiveState" props, List.assoc "Result" props with
+    | "active", _ -> 0, Unix.WEXITED 0
+    | _, "exit-code" -> pid, Unix.WEXITED status
+    | _, _ -> pid, Unix.WSIGNALED status
 end
 
 module Qemu = DaemonMgmt(struct
@@ -1942,15 +1971,12 @@ module Dm_Common = struct
     (string_of_int domid) :: "--syslog" :: args
 
   (* Forks a daemon and then returns the pid. *)
-  let start_daemon ~path ~args ~name ~domid ?(fds=[]) () =
+  let start_daemon ~path ~args ~domid ?(fds=[]) () =
     debug "Starting daemon: %s with args [%s]" path (String.concat "; " args);
-    let syslog_key = (Printf.sprintf "%s-%d" name domid) in
-    let syslog_stdout = Forkhelpers.Syslog_WithKey syslog_key in
-    let redirect_stderr_to_stdout = true in
-    let pid = Forkhelpers.safe_close_and_exec None None None fds ~syslog_stdout ~redirect_stderr_to_stdout path args in
+    let pid = D.start ~path ~args ~domid ?fds in
     debug
       "%s: should be running in the background (stdout -> syslog); (fd,pid) = %s"
-      name (Forkhelpers.string_of_pidty pid);
+      D.name (D.string_of_pidty pid);
     debug "Daemon started: %s" syslog_key;
     pid
 
@@ -1961,7 +1987,7 @@ module Dm_Common = struct
       ~cancel _ =
     let syslog_key = Printf.sprintf "%s-%d" name domid in
       let finished = ref false in
-      let watch = Watch.value_to_appear ready_path |> Watch.map (fun _ -> ()) in
+      let watch = Watlch.value_to_appear ready_path |> Watch.map (fun _ -> ()) in
     let timeout_ns = Int64.of_float (timeout *. Mtime.s_to_ns) in
     let target =
       match Mtime.add_span (Mtime_clock.now ()) (Mtime.Span.of_uint64_ns timeout_ns) with
@@ -1977,7 +2003,7 @@ module Dm_Common = struct
         | Some _ -> raise (Ioemu_failed (name, (Printf.sprintf "Daemon state not running (%s)" state)))
           | None -> finished := true
         with Watch.Timeout _ ->
-          begin match Forkhelpers.waitpid_nohang pid with
+          begin match D.waitpid_nohang pid with
             | 0, Unix.WEXITED 0 -> () (* still running => keep waiting *)
             | _, Unix.WEXITED n ->
               error "%s: unexpected exit with code: %d" name n;
@@ -3026,10 +3052,12 @@ module Dm = struct
       Add.many @@ argf "save:%s" (Xenops_sandbox.Chroot.chroot_path_inside efivars_save_path)
     in
     let args = Fe_argv.run args |> snd |> Fe_argv.argv in
-    (* TODO: put this into daemonmgmt *)
-    Varstored.start ~domid ~path:!Xc_resources.varstored ~args
-    (* TODO: systemd service should wait for the path / xenstore entry by calling xenstore watch
-     * wait, we have to be careful about mapping the exceptions though *)
+    let pid = start_daemon (module Varstored) ~path ~args ~domid () in
+    let ready_path = Varstored.pid_path domid in
+    wait_path ~pid ~task ~name ~domid ~xs ~ready_path ~timeout:!Xenopsd.varstored_ready_timeout
+      ~cancel:(Cancel_utils.Varstored domid) ();
+    D.dontwaitpid pid
+
 
   let start_vgpu ~xs task ?(restore=false) domid vgpus vcpus profile =
     let open Xenops_interface.Vgpu in
