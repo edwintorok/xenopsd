@@ -26,6 +26,7 @@ let legacy_conv_tool = ref "convert-legacy-stream"
 let verify_libxc_v2 = ref "verify-stream-v2"
 let cpu_info_file = ref "/etc/xensource/boot_time_cpus"
 let pvinpvh_xen = ref "/usr/libexec/xen/boot/xen-shim"
+let pvh_ovmf = ref "/usr/share/edk2/OVMF.fd"
 
 open Unix
 

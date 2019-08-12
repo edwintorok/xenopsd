@@ -816,7 +816,7 @@ let export_metadata vdi_map vif_map vgpu_pci_map id =
   (* Remap the bootloader vdis *)
   let vm_t = { vm_t with Vm.ty =
                            match vm_t.Vm.ty with
-                           | Vm.HVM _ -> vm_t.Vm.ty
+                           | Vm.HVM _  | Vm.PVH _ (* TODO: pvh *) -> vm_t.Vm.ty
                            | Vm.PV pv_info ->
                              Vm.PV {pv_info with
                                     Vm.boot = match pv_info.Vm.boot with
@@ -2551,7 +2551,7 @@ module VM = struct
              let fs =
                let stat = B.HOST.stat () in
                (match md.Metadata.vm.Vm.ty with
-                | HVM _ | PVinPVH _ -> Host.(stat.cpu_info.features_hvm)
+                | HVM _ | PVH _ | PVinPVH _ -> Host.(stat.cpu_info.features_hvm)
                 | PV _ -> Host.(stat.cpu_info.features_pv))
                |> string_of_features
              in

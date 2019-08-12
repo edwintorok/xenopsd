@@ -123,7 +123,7 @@ module VmExtra = struct
     let open Domain in
     match vm.ty with
     | PV _      -> X86 { emulation_flags = [] }
-    | PVinPVH _ -> X86 { emulation_flags = emulation_flags_pvh }
+    | PVH _ | PVinPVH _ -> X86 { emulation_flags = emulation_flags_pvh }
     | HVM _     -> X86 { emulation_flags = emulation_flags_all }
 
   (* Known versions of the VM persistent metadata created by xenopsd *)
@@ -848,7 +848,7 @@ let dm_of ~vm = Mutex.execute dB_m (fun () ->
     try
       let vmextra = DB.read_exn vm in
       match VmExtra.(vmextra.persistent.profile, vmextra.persistent.ty) with
-      | None, Some (PV _ | PVinPVH _) -> Device.Profile.Qemu_none
+      | None, Some (PV _ | PVinPVH _ |PVH _) -> Device.Profile.Qemu_none
       | None, (Some (HVM _) | None) -> Device.Profile.fallback
       | Some x, _ -> x
     with _ -> Device.Profile.fallback
@@ -872,7 +872,7 @@ module VM = struct
       match persistent.ty with
       | Some (PV _)      -> Memory.Linux.overhead_mib
       | Some (PVinPVH _) -> Memory.PVinPVH.overhead_mib
-      | Some (HVM _)     -> Memory.HVM.overhead_mib
+      | Some (PVH _ (* TODO: pvh *)| HVM _)     -> Memory.HVM.overhead_mib
       | None             -> failwith "cannot compute memory overhead: unable to determine domain type"
     in
     model static_max_mib vcpu_max shadow_multiplier |> Memory.bytes_of_mib
@@ -900,6 +900,7 @@ module VM = struct
       | HVM _     -> "hvm"
       | PV _      -> "pv"
       | PVinPVH _ -> "pv-in-pvh"
+      | PVH _ -> "pvh"
     in
     xs.Xs.write (domain_type_path domid) domain_type
 
@@ -909,6 +910,7 @@ module VM = struct
       | "hvm"       -> Domain_HVM
       | "pv"        -> Domain_PV
       | "pv-in-pvh" -> Domain_PVinPVH
+      | "pvh"       -> Domain_PVH
       | x           ->
         warn "domid = %d; Undefined domain type found (%s)" di.Xenctrl.domid x;
         Domain_undefined
@@ -941,7 +943,7 @@ module VM = struct
           Domain.cmdline = "";
           ramdisk = None;
         }
-      | PVinPVH _ ->
+      | PVinPVH _ | PVH _ ->
         failwith "This domain type did not exist pre-xenopsd"
     in
     let build_info = {
@@ -980,7 +982,7 @@ module VM = struct
 
   let generate_create_info ~xc ~xs vm persistent =
     let ty = match persistent.VmExtra.ty with | Some ty -> ty | None -> vm.ty in
-    let hvm = match ty with | HVM _ | PVinPVH _ -> true | PV _ -> false in
+    let hvm = match ty with | HVM _ | PVinPVH _ | PVH _ -> true | PV _ -> false in
     (* XXX add per-vcpu information to the platform data *)
     (* VCPU configuration *)
     let pcpus = Xenctrlext.get_max_nr_cpus xc in
@@ -1414,10 +1416,10 @@ module VM = struct
       match ty with
       | PV { framebuffer = false } -> None
       | PV { framebuffer = true; _ }
-      | PVinPVH { framebuffer = true; _ } ->
+      | PVinPVH { framebuffer = true; _ } | PVH { framebuffer = true } ->
         debug "Ignoring request for a PV VNC console (would require qemu-trad)";
         None
-      | PVinPVH { framebuffer = false } -> None
+      | PVinPVH { framebuffer = false } | PVH { framebuffer = false } -> None
       | HVM hvm_info ->
         let disks = List.filter_map (fun vbd ->
             let id = vbd.Vbd.id in
@@ -1490,6 +1492,10 @@ module VM = struct
       in
       String.concat " " [base; shim_mem]
     in
+    let pvh_ovmf_cmdline =
+        try List.assoc "pvh-ovmf-cmdline" vm.Vm.platformdata
+        with Not_found -> !Xenopsd.pvh_ovmf_cmdline
+    in
     (* We should prevent leaking files in our filesystem *)
     let kernel_to_cleanup = ref None in
     finally (fun () ->
@@ -1534,11 +1540,30 @@ module VM = struct
                            | None -> []
                           );
                 shadow_multiplier = 1.;
-                video_mib = 4;
+                video_mib = 0;
               } in
             ((make_build_info !Resources.pvinpvh_xen builder_spec_info), "")
+          | PVH { boot = Direct direct } ->
+            let builder_spec_info = Domain.BuildPVH Domain.{
+                cmdline = direct.cmdline;
+		modules = (match direct.ramdisk with
+                          | Some r -> [r, None]
+                          | None -> []);
+                shadow_multiplier = 1.;
+                video_mib = 0;
+              } in
+            ((make_build_info direct.kernel builder_spec_info), "")
           | PVinPVH { boot = Indirect { devices = [] } } ->
             raise (Xenopsd_error No_bootable_device)
+          | PVH { boot = Indirect _ } ->
+            (* TODO: look at devices *)
+            let builder_spec_info = Domain.BuildPVH Domain.{
+                cmdline = pvh_ovmf_cmdline;
+		modules = [];
+                shadow_multiplier = 1.;
+                video_mib = 0;
+              } in
+            ((make_build_info !Resources.pvh_ovmf builder_spec_info), "")
           | PVinPVH { boot = Indirect ( { devices = d :: _ } as i ) } ->
             with_disk ~xc ~xs task d false
               (fun dev ->
@@ -1555,7 +1580,7 @@ module VM = struct
                                 | None -> []
                                );
                      shadow_multiplier = 1.;
-                     video_mib = 4;
+                     video_mib = 0;
                    } in
                  ((make_build_info !Resources.pvinpvh_xen builder_spec_info), "")
               ) in
@@ -1627,7 +1652,7 @@ module VM = struct
             (if saved_state then Device.Dm.restore else Device.Dm.start)
               task ~xs ~dm:qemu_dm info di.Xenctrl.domid;
             Device.Serial.update_xenstore ~xs di.Xenctrl.domid
-          | Vm.PV _ | Vm.PVinPVH _ -> assert false
+          | Vm.PV _ | Vm.PVinPVH _ | Vm.PVH _ -> assert false
         ) (create_device_model_config vm vmextra vbds vifs vgpus vusbs);
       match vm.Vm.ty with
       | Vm.PV { vncterm = true; vncterm_ip = ip }
@@ -1663,7 +1688,7 @@ module VM = struct
            match get_domain_type ~xs di with
            | Vm.Domain_HVM -> `hvm
            | Vm.Domain_PV -> `pv
-           | Vm.Domain_PVinPVH -> `pvh
+           | Vm.Domain_PVinPVH | Vm.Domain_PVH -> `pvh
            | Vm.Domain_undefined -> failwith "undefined domain type: cannot save"
          in
 
@@ -1809,7 +1834,7 @@ module VM = struct
            match get_domain_type ~xs di with
            | Vm.Domain_HVM -> `hvm
            | Vm.Domain_PV -> `pv
-           | Vm.Domain_PVinPVH -> `pvh
+           | Vm.Domain_PVinPVH | Vm.Domain_PVH -> `pvh
            | Vm.Domain_undefined -> failwith "undefined domain type: cannot save"
          in
          let domid = di.Xenctrl.domid in

@@ -45,6 +45,7 @@ let vif_ready_for_igmp_query_timeout = ref 120
 let feature_flags_path = ref "/etc/xenserver/features.d"
 
 let pvinpvh_xen_cmdline = ref "pv-shim"
+let pvh_ovmf_cmdline = ref ""
 
 let options = [
   "queue", Arg.Set_string Xenops_interface.queue_name, (fun () -> !Xenops_interface.queue_name), "Listen on a specific queue";
@@ -68,6 +69,7 @@ let options = [
   "action-after-qemu-crash", Arg.String (fun x -> action_after_qemu_crash := if x="" then None else Some x), (fun () -> match !action_after_qemu_crash with None->"" | Some x->x), "Action to take for VMs if QEMU crashes or dies unexpectedly: pause, poweroff. Otherwise, no action (default).";
   "feature-flags-path", Arg.Set_string feature_flags_path, (fun () -> !feature_flags_path), "Directory of experimental feature flags";
   "pvinpvh-xen-cmdline", Arg.Set_string pvinpvh_xen_cmdline, (fun () -> !pvinpvh_xen_cmdline), "Command line for the inner-xen for PV-in-PVH guests";
+  "pvh-ovmf-cmdline", Arg.Set_string pvh_ovmf_cmdline, (fun () -> !pvh_ovmf_cmdline), "Command line for OVMF for PVH guests";
 ]
 
 let path () = Filename.concat !sockets_path "xenopsd"

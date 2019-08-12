@@ -253,11 +253,11 @@ let vm_assert_equal vm vm' =
   assert_equal ~msg:"on_reboot" ~printer:(fun x -> String.concat ", " (List.map (fun x -> x |> rpc_of_action |> Jsonrpc.to_string) x)) vm.on_reboot vm'.on_reboot;
   assert_equal ~msg:"has_vendor_device" ~printer:string_of_bool vm.has_vendor_device vm'.has_vendor_device;
   let is_hvm vm = match vm.ty with
-    | HVM _ -> true | PV _ | PVinPVH _ -> false in
+    | HVM _ -> true | PV _ | PVinPVH _ | PVH _ -> false in
   assert_equal ~msg:"HVM-ness" ~printer:string_of_bool (is_hvm vm) (is_hvm vm');
   match vm.ty, vm'.ty with
-  | HVM _, (PV _ | PVinPVH _ )
-  | (PV _|PVinPVH _), HVM _ -> failwith "HVM-ness"
+  | HVM _, (PV _ | PVinPVH _ | PVH _ )
+  | (PV _|PVinPVH _|PVH _), HVM _ -> failwith "HVM-ness"
   | HVM h, HVM h' ->
     assert_equal ~msg:"HAP" ~printer:string_of_bool h.hap h'.hap;
     assert_equal ~msg:"shadow_multipler" ~printer:string_of_float h.shadow_multiplier h'.shadow_multiplier;
@@ -272,7 +272,7 @@ let vm_assert_equal vm vm' =
     assert_equal ~msg:"pci_passthrough" ~printer:string_of_bool  h.pci_passthrough h'.pci_passthrough;
     assert_equal ~msg:"boot_order" ~printer:(fun x -> x) h.boot_order h'.boot_order;
     assert_equal ~msg:"qemu_disk_cmdline" ~printer:string_of_bool h.qemu_disk_cmdline h'.qemu_disk_cmdline;
-  | (PV p|PVinPVH p), (PV p' | PVinPVH p') ->
+  | (PV p|PVinPVH p|PVH p), (PV p' | PVinPVH p'| PVH p') ->
     assert_equal ~msg:"framebuffer" ~printer:string_of_bool p.framebuffer p'.framebuffer;
     assert_equal ~msg:"vncterm" ~printer:string_of_bool p.vncterm p'.vncterm;
     assert_equal ~msg:"vncterm_ip" ~printer:(Opt.default "None") p.vncterm_ip p'.vncterm_ip;
