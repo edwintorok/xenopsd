@@ -394,6 +394,12 @@ let make ~xc ~xs vm_info vcpus domain_config uuid final_uuid no_sharept =
     if vm_info.is_uefi then
       xs.Xs.write (dom_path ^ "/hvmloader/bios") "ovmf";
 
+    let dtype = match vm_info.hvm with
+      | true -> "HVM"
+      | false -> "PV"
+    in
+    xs.Xs.write (Printf.sprintf "/libxl/%d/type" domid) dtype;
+
     (* If a toolstack sees a domain which it should own in this state then the
        		   domain is not completely setup and should be shutdown. *)
     xs.Xs.write (dom_path ^ "/action-request") "poweroff";
