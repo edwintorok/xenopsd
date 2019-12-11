@@ -2229,38 +2229,7 @@ module Dm_Common = struct
 
   (* Called by every domain destroy, even non-HVM *)
   let stop ~xs ~qemu_domid domid  =
-    let qemu_pid_path = Qemu.pid_path domid
-    in
-    let stop_qemu () = match (Qemu.pid ~xs domid) with
-        | None -> () (* nothing to do *)
-        | Some qemu_pid ->
-          debug "qemu-dm: stopping qemu-dm with SIGTERM (domid = %d)" domid;
-          let open Generic in
-          best_effort "signalling that qemu is ending as expected, mask further signals"
-            (fun () -> Qemu.SignalMask.set Qemu.signal_mask domid);
-          best_effort "killing qemu-dm"
-            (fun () -> really_kill qemu_pid);
-          best_effort "removing qemu-pid from xenstore"
-            (fun () -> xs.Xs.rm qemu_pid_path);
-          best_effort "unmasking signals, qemu-pid is already gone from xenstore"
-            (fun () -> Qemu.SignalMask.unset Qemu.signal_mask domid);
-          best_effort "removing device model path from xenstore"
-            (fun () -> xs.Xs.rm (device_model_path ~qemu_domid domid));
-          match Qemu.pidfile_path domid with
-          | None -> ()
-          | Some path ->
-            best_effort (sprintf "removing %s" path)
-              (fun () -> Unix.unlink path)
-    in
-    let stop_vgpu () = Vgpu.stop ~xs domid in
-    let stop_varstored () =
-      Varstored.stop ~xs domid;
-      let dbg = Printf.sprintf "stop domid %d" domid in
-      Xenops_sandbox.Varstore_guard.stop dbg ~domid ~vm_uuid:(Uuidm.to_string (Xenops_helpers.uuid_of_domid ~xs domid))
-    in
-    stop_vgpu ();
-    stop_varstored ();
-    stop_qemu ()
+    xs.Xs.rm (sprintf "/libxl/%d" domid)
 
 
 
@@ -2408,7 +2377,8 @@ module Backend = struct
       let suspend (task: Xenops_task.task_handle) ~xs ~qemu_domid domid =
         Dm_Common.signal task ~xs ~qemu_domid ~domid "save" ~wait_for:"paused"
 
-      let stop ~xs ~qemu_domid domid = ()
+      let stop ~xs ~qemu_domid domid =
+        Dm_Common.stop ~xs ~qemu_domid domid
 
       let init_daemon ~task ~path ~args ~domid ~xs ~ready_path ~timeout ~cancel ?(fds=[]) _ =
         raise (Ioemu_failed (Qemu.name, "PV guests have no IO emulator"))
@@ -2972,9 +2942,39 @@ module Backend = struct
         pid
 
       let stop ~xs ~qemu_domid domid =
-        Dm_Common.stop ~xs ~qemu_domid domid;
+        let qemu_pid_path = Qemu.pid_path domid
+        in
+        let stop_qemu () = match (Qemu.pid ~xs domid) with
+            | None -> () (* nothing to do *)
+            | Some qemu_pid ->
+              debug "qemu-dm: stopping qemu-dm with SIGTERM (domid = %d)" domid;
+              let open Generic in
+              best_effort "signalling that qemu is ending as expected, mask further signals"
+                (fun () -> Qemu.SignalMask.set Qemu.signal_mask domid);
+              best_effort "killing qemu-dm"
+                (fun () -> really_kill qemu_pid);
+              best_effort "removing qemu-pid from xenstore"
+                (fun () -> xs.Xs.rm qemu_pid_path);
+              best_effort "unmasking signals, qemu-pid is already gone from xenstore"
+                (fun () -> Qemu.SignalMask.unset Qemu.signal_mask domid);
+              best_effort "removing device model path from xenstore"
+                (fun () -> xs.Xs.rm (device_model_path ~qemu_domid domid));
+              match Qemu.pidfile_path domid with
+              | None -> ()
+              | Some path ->
+                best_effort (sprintf "removing %s" path)
+                  (fun () -> Unix.unlink path)
+        in
+        let stop_vgpu () = Vgpu.stop ~xs domid in
+        let stop_varstored () =
+          Varstored.stop ~xs domid;
+          let dbg = Printf.sprintf "stop domid %d" domid in
+          Xenops_sandbox.Varstore_guard.stop dbg ~domid ~vm_uuid:(Uuidm.to_string (Xenops_helpers.uuid_of_domid ~xs domid))
+        in
+        stop_vgpu ();
+        stop_varstored ();
+        stop_qemu ();
         QMP_Event.remove domid;
-        xs.Xs.rm (sprintf "/libxl/%d" domid);
         let rm path =
           let msg = Printf.sprintf "removing %s" path in
           Generic.best_effort msg (fun () -> Socket.Unix.rm path) in
