@@ -61,8 +61,7 @@ val emulation_flags_pvh : x86_arch_emulation_flags list
 
 val emulation_flags_all : x86_arch_emulation_flags list
 
-type x86_arch_misc_flags =
-  | X86_MSR_RELAXED
+type x86_arch_misc_flags = X86_MSR_RELAXED
 
 type xen_x86_arch_domainconfig = {
     (* Xenctrl.xen_x86_arch_domainconfig = *)
