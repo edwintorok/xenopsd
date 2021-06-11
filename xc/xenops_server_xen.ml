@@ -829,19 +829,57 @@ let _vdi_id = "vdi-id"
 
 let _dp_id = "dp-id"
 
-(* Compute the migration-safe flags *)
-let upgrade_for_migration ~xc features =
-  try
-    let msr_arch_caps = Xenctrlext.xc_get_msr_arch_caps xc in
-    let tsx_ctrl = 0x80L in
-    if Int64.(logand msr_arch_caps tsx_ctrl = tsx_ctrl) then
-      let cpuid_hle_rtm = (1 lsl 4) lor (1 lsl 11) |> Int64.of_int in
-      features.(5) <- Int64.(logor features.(5) cpuid_hle_rtm)
-    (* These still work, albeit slowly. We might prefer to hide these from
-       host's CPUID for pool leveling and guest boot purposes, but can accept it
-       during migration. *)
-  with Xenctrlext.Unix_error (Unix.ENOSYS, _) ->
-    debug "xc_get_msr_arch_caps: ENOSYS"
+(** [zeroext a b] make arrays same lengths by zeroextending on the right *)
+let zeroext a b =
+  let len = max (Array.length a) (Array.length b) in
+  let extend arr =
+    Array.append arr (Array.make (len - Array.length arr) 0L)
+  in
+  extend a, extend b
+
+let op_featureset op a b =
+  let a, b = zeroext a b in
+  Array.map2 op a b
+
+let diff_bitset lhs rhs =
+  (* lhs - rhs as feature bitsets,
+     i.e. all bits that are present on lhs and missing on rhs:
+     = lhs & ~rhs *)
+  Int64.(logand lhs (lognot rhs))
+
+let print_featureset name fs =
+  (* concat with `:` for easy pasting into `xen-cpuid` to decode *)
+  debug "%s featureset: %s" name (fs |> Array.map (Printf.sprintf "%08Lx") |> Array.to_list |> String.concat ":")
+
+let get_policy_featureset xc name featureset index_default index_max =
+  let fetch_policy_featureset index =
+    let pol = Xenctrl.get_system_cpu_policy xc index in
+    debug "Retrieved %s policy from Xen: %s" (Xenctrl.string_of_xen_cpu_policy_index index) (Xenctrlext.string_of_cpu_policy pol);
+    pol
+  in
+  (* The migration-safety policy of max CPUID we can accept *)
+  let policy_max = fetch_policy_featureset index_max in
+  let featureset_max = Xenctrl.cpu_policy_to_featureset xc policy_max in
+
+  (* For debugging purposes retrieve the default featureset and compare it *)
+  print_featureset (name ^ " Max policy") featureset_max;
+  let policy_default = fetch_policy_featureset index_default in
+  let featureset_default = Xenctrl.cpu_policy_to_featureset xc policy_default in
+  print_featureset (name ^ " Default policy") featureset_default;
+  print_featureset (name ^ " Dynamic set") featureset;
+
+  (* sanity checks: our featureset shouldn't be more than max! *)
+  let ours_minus_max = op_featureset diff_bitset featureset featureset_max in
+  if not @@ Array.for_all (fun x -> Int64.equal x 0L) ours_minus_max then begin
+    print_featureset (name ^ " (DynamicSet - Max)") ours_minus_max;
+    warn "Our default policy has CPUID features that are not present in Max policy!";
+  end;
+  print_featureset (name ^ " (Max - Default)") (op_featureset diff_bitset featureset_max featureset_default);
+
+  (* just in case OR the max into our featureset instead of taking max as is *)
+  let migration_safe = op_featureset Int64.logor featureset featureset_max in
+  print_featureset (name ^ " MigrationMax") migration_safe;
+  migration_safe
 
 module HOST = struct
   include Xenops_server_skeleton.HOST
@@ -926,10 +964,9 @@ module HOST = struct
         features_hvm.(3) <- Int64.logor features_hvm.(3) 0x2L ;
         (* Set X86_FEATURE_IBS in e1c for HVM guests *)
         features_hvm.(3) <- Int64.logor features_hvm.(3) 0x400L ;
-        let features_hvm_host = Array.copy features_hvm in
-        let features_pv_host = Array.copy features_pv in
-        upgrade_for_migration ~xc features_hvm ;
-        upgrade_for_migration ~xc features_pv ;
+        (* this is Max policy in Xen's terminology *)
+        let features_hvm_host = get_policy_featureset xc "HVM" features_hvm Xenctrl.Cpu_policy_hvm_default Xenctrl.Cpu_policy_hvm_max in
+        let features_pv_host = get_policy_featureset xc "PV" features_pv Xenctrl.Cpu_policy_pv_default Xenctrl.Cpu_policy_pv_max in
         let v = version xc in
         let xen_version_string =
           Printf.sprintf "%d.%d%s" v.major v.minor v.extra

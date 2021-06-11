@@ -83,5 +83,36 @@ external numainfo : handle -> numainfo = "stub_xenctrlext_numainfo"
 
 external cputopoinfo : handle -> cputopo array = "stub_xenctrlext_cputopoinfo"
 
-external xc_get_msr_arch_caps : handle -> int64
-  = "stub_xenctrlext_get_msr_arch_caps"
+let string_of_leaf v =
+  Printf.sprintf "%08Lx:%08Lx->%08Lx:%08Lx:%08Lx:%08Lx"
+  v.leaf v.subleaf v.a v.b v.c v.d
+
+let leaf_of_string s =
+  Scanf.sscanf s "%08Lx:%08Lx->%08Lx:%08Lx:%08Lx:%08Lx" @@
+  fun leaf subleaf a b c d -> { leaf; subleaf; a; b; c; d }
+
+let string_of_msr v =
+  Printf.sprintf "%08Lx->%016Lx(%08Lx)"
+  v.idx v.value v.flags
+
+let msr_of_string s =
+  Scanf.sscanf s "%08Lx->%016Lx(%08Lx)"
+  @@ fun idx value flags -> {idx; flags; value}
+
+let string_of_cpu_policy policy =
+  (* if the format is modified here [cpu_policy_of_string] must support
+     deserializing all old and new formats *)
+  let string_of_array v f = v |> Array.map f |> Array.to_list |> String.concat ";" in
+  String.concat "/"
+    [ string_of_array policy.leaves string_of_leaf
+    ; string_of_array policy.msrs string_of_msr
+    ]
+
+let cpu_policy_of_string str =
+  let array_of_string s f = s |> String.split_on_char ';' |> Array.of_list |> Array.map f in
+  match String.split_on_char '/' str with
+  | [leaves; msrs] ->
+      { leaves = array_of_string leaves leaf_of_string
+      ; msrs = array_of_string msrs msr_of_string }
+  | l ->
+      invalid_arg (Printf.sprintf "Expected 'leaves/msrs' in policy '%s'" str)

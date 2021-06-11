@@ -79,5 +79,11 @@ external numainfo : handle -> numainfo = "stub_xenctrlext_numainfo"
 
 external cputopoinfo : handle -> cputopo array = "stub_xenctrlext_cputopoinfo"
 
-external xc_get_msr_arch_caps : handle -> int64
-  = "stub_xenctrlext_get_msr_arch_caps"
+(** [string_of_cpu_policy policy] serializes [policy] for storage in toolstack,
+    in a compact human-readable form *)
+val string_of_cpu_policy: xen_cpu_policy -> string
+
+(** [cpu_policy_of_string str] deserializes [str] into a cpu policy.
+    Must support all previous serialization formats of [string_of_cpu_policy] *)
+val cpu_policy_of_string: string -> xen_cpu_policy
+
