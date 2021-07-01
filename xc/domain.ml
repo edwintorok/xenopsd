@@ -111,6 +111,7 @@ type create_info = {
   ; has_vendor_device: bool
   ; is_uefi: bool
   ; pci_passthrough: bool
+  ; nested_virt: bool
 }
 [@@deriving rpcty]
 
@@ -352,17 +353,25 @@ let make ~xc ~xs vm_info vcpus domain_config uuid final_uuid no_sharept =
   if iommu then
     assert_capability CAP_DirectIO ~on_error:(fun () -> "IOMMU unavailable") ;
 
-  info "VM = %s; Creating %s%s%s" (Uuid.to_string uuid)
+  let nested_virt = vm_info.nested_virt in
+  if nested_virt && not hap then begin
+    error "VM = %s; Nested virt requires HAP" (Uuid.to_string uuid);
+    invalid_arg ("platform/nested-virt=true requires platform/hap")
+  end;
+
+  info "VM = %s; Creating %s%s%s%s" (Uuid.to_string uuid)
     (if hvm then "HVM" else "PV")
     (if hap then " HAP" else "")
-    (if iommu then " IOMMU" else "") ;
+    (if iommu then " IOMMU" else "")
+    (if nested_virt then " NESTEDVIRT" else "")
+  ;
 
   let config =
     {
       ssidref= vm_info.ssidref
     ; handle= Uuid.to_string uuid
     ; flags=
-        [(hvm, CDF_HVM); (hap, CDF_HAP); (iommu, CDF_IOMMU)]
+        [(hvm, CDF_HVM); (hap, CDF_HAP); (iommu, CDF_IOMMU); (nested_virt, CDF_NESTED_VIRT)]
         |> List.filter_map (fun (cond, flag) -> if cond then Some flag else None)
     ; iommu_opts=
         ( match no_sharept with

@@ -1337,6 +1337,7 @@ module VM = struct
     ; has_vendor_device= vm.has_vendor_device
     ; is_uefi
     ; pci_passthrough
+    ; nested_virt = persistent.nested_virt
     }
 
   let xen_platform_of ~vm ~vmextra =

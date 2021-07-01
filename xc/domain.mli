@@ -86,6 +86,7 @@ type create_info = {
   ; has_vendor_device: bool
   ; is_uefi: bool
   ; pci_passthrough: bool
+  ; nested_virt: bool
 }
 
 val typ_of_create_info : create_info Rpc.Types.typ
